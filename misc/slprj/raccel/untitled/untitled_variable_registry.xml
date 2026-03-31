@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<MF0 version="1.1" packageUris="http://schema.mathworks.com/mf0/slsa_mm_param_graph/R2021b">
-  <slsa.mm.param.graph.VariableRegistry type="slsa.mm.param.graph.VariableRegistry" uuid="f7982a17-3344-4094-8c75-98e33bfa0cfd">
-    <name>untitled</name>
-    <contextManager type="slsa.mm.param.graph.ContextManager" uuid="bc60a6e7-2d11-4531-95a1-13f4e70ea91a"/>
-  </slsa.mm.param.graph.VariableRegistry>
-</MF0>
