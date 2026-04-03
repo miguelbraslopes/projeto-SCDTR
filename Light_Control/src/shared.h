@@ -4,10 +4,10 @@
 
 struct ControlInputs {
   float referenceLux;
+  char occupancyState;
   bool antiWindupEnabled;
   bool feedbackEnabled;
-  bool luminanceControlEnabled;
-  char occupancyState;
+  bool manualOverride;
   float pwm[3]; // for future use: store PWM values of other luminaires
 };
 
@@ -26,8 +26,8 @@ struct PendingCommands {
   bool hasReferenceLux;
   float newReferenceLux;
 
-  bool hasBeta;
-  float newBeta;
+  bool hasOccupancyState;
+  char newOccupancyState;
 
   bool hasAntiWindupEnabled;
   bool newAntiWindupEnabled;
@@ -35,11 +35,11 @@ struct PendingCommands {
   bool hasFeedbackEnabled;
   bool newFeedbackEnabled;
 
-  bool hasLuminanceControlEnabled;
-  bool newLuminanceControlEnabled;
+  bool hasManualOverride;
+  bool newManualOverride;
 
-  bool hasOccupancyState;
-  char newOccupancyState;
+  bool haspwm;
+  float newpwm[3];
 };
 
 extern volatile ControlInputs gInputs;

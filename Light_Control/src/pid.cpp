@@ -8,6 +8,20 @@ int luxsumADC = 0;
 int sampleCount = 0;
 int sampleCountADC = 0;
 
+
+float instant_Pwr = 0.0;
+
+float energy_sum = 0.0;
+unsigned long energy_sample_count = 0;
+
+float avg_visibility_err = 0.0;
+float visibility_err_sum = 0.0;
+unsigned long visibility_err_sample_count = 0;
+
+float avg_flicker = 0.0;
+float flicker_sign_ = 0.0;
+unsigned long flicker_sample_count = 0;
+
 // =====================
 // LUX READING
 // =====================
@@ -65,6 +79,17 @@ void setPWM(float dutyCycle) {
   analogWrite(PWM_PIN, dutyCycle * PWM_MAX);
 }
 
+float compute_avg_flicker(){
+
+}
+
+float compute_avg_energy(){
+
+}
+
+float compute_avg_visibility_err(){
+
+}
 
 // =====================
 // PID CLASS IMPLEMENTATIONS
@@ -105,37 +130,11 @@ void PID::reset() {
 float PID::compute(float reference, float measurement) {
 
     ControlInputs inputs;
-    float gains[3] = {0.0f, 0.0f, 0.0f};
-    critical_section_enter_blocking(&gStateLock); // make a local copy to minimize time in critical section
-        inputs.referenceLux = gInputs.referenceLux;
-        inputs.antiWindupEnabled = gInputs.antiWindupEnabled;
-        inputs.feedbackEnabled = gInputs.feedbackEnabled;
-        inputs.luminanceControlEnabled = gInputs.luminanceControlEnabled;  
-        inputs.occupancyState = gInputs.occupancyState;
-        for (int i = 0; i < 3; i++) {
-            inputs.pwm[i] = gInputs.pwm[i];
-            gains[i] = luminaireGain[i];
-        } 
-    critical_section_exit(&gStateLock);
-
-
-    float external_lux=0.0;
-
-    if(_luminaireId == 0){
-        external_lux = inputs.pwm[1]*gains[1] + inputs.pwm[2]*gains[2];
-    }
-    else if(_luminaireId == 1){
-        external_lux = inputs.pwm[0]*gains[0] + inputs.pwm[2]*gains[2];
-    }
-    else if(_luminaireId == 2){
-        external_lux = inputs.pwm[0]*gains[0] + inputs.pwm[1]*gains[1];
-    }
-    
-
+    float external_lux_compensation=getExternalLuminance();  
 
     if (!FBon) {
         // modo feedforward (apenas ação proporcional ao setpoint) 
-        float output = Kff * reference - external_lux; // feedforward puro
+        float output = Kff * reference - external_lux_compensation; // feedforward puro
         // saturação
         if (output > outputMax) output = outputMax;
         if (output < outputMin) output = outputMin;
@@ -145,9 +144,8 @@ float PID::compute(float reference, float measurement) {
     // modo feedback (PID completo)
     float error = reference - measurement;
     
-    float P = Kp * (beta * reference - measurement);
-    float D = Kd * ((gamma * reference - measurement) -
-                    (gamma * previousReference - previousMeasurement)) / Ts;
+    float P = Kp * (reference - measurement);
+    float D = Kd * ((reference - measurement) - (previousReference - previousMeasurement)) / Ts;
 
     if (AWon) {
         if (!((P + integrator + D >= outputMax && error > 0) ||
@@ -159,7 +157,7 @@ float PID::compute(float reference, float measurement) {
         integrator += Ki * Ts * error;
     }
 
-    float output = P + integrator + D;
+    float output = (P + integrator + D);//-external_lux_compensation; // considerando ganho das outras luminárias como perturbação
 
     // saturação
     if (output > outputMax) output = outputMax;
@@ -212,6 +210,30 @@ bool PID::setWeight(Weight weight, float value) {
     }
 }
 
+float PID::getExternalLuminance() {
+    ControlInputs inputs;
+    float pwm[3];
+    critical_section_enter_blocking(&gStateLock);
+    pwm[0] = gInputs.pwm[0];
+    pwm[1] = gInputs.pwm[1];
+    pwm[2] = gInputs.pwm[2];
+    critical_section_exit(&gStateLock);
+
+    float external_lux_compensation=0.0;
+
+    if(_luminaireId == 0){
+        external_lux_compensation = pwm[1]*luminaireGain[1] + pwm[2]*luminaireGain[2];
+    }
+    else if(_luminaireId == 1){
+        external_lux_compensation = pwm[0]*luminaireGain[0] + pwm[2]*luminaireGain[2];
+    }
+    else if(_luminaireId == 2){
+        external_lux_compensation = pwm[0]*luminaireGain[0] + pwm[1]*luminaireGain[1];
+    }
+
+    return external_lux_compensation;
+}
+
 float PID::getWeight(Weight weight) const {
     switch (weight) {
         case KP:
@@ -237,10 +259,7 @@ bool PID::setLuminaireGain(uint8_t luminaireId, float gain) {
     if (luminaireId >= 3) {
         return false;
     }
-
-    critical_section_enter_blocking(&gStateLock);
     luminaireGain[luminaireId] = gain;
-    critical_section_exit(&gStateLock);
     return true;
 }
 
@@ -248,11 +267,7 @@ float PID::getLuminaireGain(uint8_t luminaireId) const {
     if (luminaireId >= 3) {
         return 0.0f;
     }
-
-    float gain;
-    critical_section_enter_blocking(&gStateLock);
-    gain = luminaireGain[luminaireId];
-    critical_section_exit(&gStateLock);
+    float gain = luminaireGain[luminaireId];
     return gain;
 }
 

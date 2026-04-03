@@ -1,6 +1,6 @@
 #include "shared.h"
 
-volatile ControlInputs gInputs = {20.0f, true, true, true, 'o'};
+volatile ControlInputs gInputs = {20.0f, 'o', true, true, false, {0.0f, 0.0f, 0.0f}};
 volatile ControlOutputs gOutputs = {0, 0.0f, 0.0f, 0.0f, 0.0f};
 volatile PendingCommands gPending = {};
 critical_section_t gStateLock;

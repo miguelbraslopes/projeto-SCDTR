@@ -4,6 +4,7 @@
 #include "serial.h"
 #include "canv2.h"
 #include "shared.h"
+#include <string.h>
 
 /*
    Distributed Real-Time Control Systems Project
@@ -23,36 +24,9 @@ static void applyPendingCommands() {
   PendingCommands pending = {};
 
   critical_section_enter_blocking(&gStateLock);
-  // Safe to read volatile fields while in critical section
-  pending.hasDuty = gPending.hasDuty;
-  pending.newDuty = gPending.newDuty;
-  pending.hasReferenceLux = gPending.hasReferenceLux;
-  pending.newReferenceLux = gPending.newReferenceLux;
-  pending.hasBeta = gPending.hasBeta;
-  pending.newBeta = gPending.newBeta;
-  pending.hasAntiWindupEnabled = gPending.hasAntiWindupEnabled;
-  pending.newAntiWindupEnabled = gPending.newAntiWindupEnabled;
-  pending.hasFeedbackEnabled = gPending.hasFeedbackEnabled;
-  pending.newFeedbackEnabled = gPending.newFeedbackEnabled;
-  pending.hasLuminanceControlEnabled = gPending.hasLuminanceControlEnabled;
-  pending.newLuminanceControlEnabled = gPending.newLuminanceControlEnabled;
-  pending.hasOccupancyState = gPending.hasOccupancyState;
-  pending.newOccupancyState = gPending.newOccupancyState;
-  
-  gPending.hasDuty = false;
-  gPending.newDuty = 0.0f;
-  gPending.hasReferenceLux = false;
-  gPending.newReferenceLux = 0.0f;
-  gPending.hasBeta = false;
-  gPending.newBeta = 0.0f;
-  gPending.hasAntiWindupEnabled = false;
-  gPending.newAntiWindupEnabled = false;
-  gPending.hasFeedbackEnabled = false;
-  gPending.newFeedbackEnabled = false;
-  gPending.hasLuminanceControlEnabled = false;
-  gPending.newLuminanceControlEnabled = false;
-  gPending.hasOccupancyState = false;
-  gPending.newOccupancyState = '\0';
+  // Copy and clear the full pending struct so all fields are handled.
+  memcpy(&pending, (const void*)&gPending, sizeof(PendingCommands));
+  memset((void*)&gPending, 0, sizeof(PendingCommands));
 
   if (pending.hasDuty) {
     gOutputs.duty = pending.newDuty;
@@ -60,26 +34,24 @@ static void applyPendingCommands() {
   if (pending.hasReferenceLux) {
     gInputs.referenceLux = pending.newReferenceLux;
   }
+  if (pending.hasOccupancyState) {
+    gInputs.occupancyState = pending.newOccupancyState;
+  }
   if (pending.hasAntiWindupEnabled) {
     gInputs.antiWindupEnabled = pending.newAntiWindupEnabled;
   }
   if (pending.hasFeedbackEnabled) {
     gInputs.feedbackEnabled = pending.newFeedbackEnabled;
   }
-  if (pending.hasLuminanceControlEnabled) {
-    gInputs.luminanceControlEnabled = pending.newLuminanceControlEnabled;
+  if (pending.hasManualOverride) {
+    gInputs.manualOverride = pending.newManualOverride;
   }
-  if (pending.hasOccupancyState) {
-    gInputs.occupancyState = pending.newOccupancyState;
+  if (pending.haspwm) {
+    for (int i = 0; i < 3; i++) {
+      gInputs.pwm[i] = pending.newpwm[i];
+    }
   }
-  critical_section_exit(&gStateLock);
-
-  if (pending.hasBeta) {
-    controller.setWeight(PID::BETA, pending.newBeta);
-  }
-  if (pending.hasAntiWindupEnabled) {
-    controller.setAntiWindup(pending.newAntiWindupEnabled);
-  }
+  critical_section_exit(&gStateLock); 
 }
 
 //Core 0: Control loop and sensor reading
@@ -102,8 +74,9 @@ void loop() {
     float adcAvg = getMovingAverageADC();
     float lux = getavglux(adcAvg);
     float duty = gOutputs.duty;
-
-    if (gInputs.feedbackEnabled && gInputs.luminanceControlEnabled) {
+  
+    // Skip PID computation if manual override is active (use preset duty cycle instead).
+    if (!gInputs.manualOverride) {
       duty = controller.compute(gInputs.referenceLux, lux);
     }
     setPWM(duty);
@@ -147,7 +120,6 @@ void loop1() {
 
   if (got_irq){
     got_irq = false; // Reset flag
-
     // Process CAN message
     processirq();
     can0.clearRXnOVRFlags();  
@@ -158,7 +130,7 @@ void loop1() {
     handleSerial();
   }
 
-  if (now - lastTimePWM >= 2000) { // 50ms CAN update
+  if (now - lastTimePWM >= 5) { // 20ms CAN update
     lastTimePWM = now;
     // Send PWM value over CAN
     critical_section_enter_blocking(&gStateLock);

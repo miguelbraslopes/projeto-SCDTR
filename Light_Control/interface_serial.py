@@ -10,6 +10,29 @@ import time
 from datetime import datetime
 import threading
 import sys
+import argparse
+import os
+
+RPI_PORTS = {
+    "rpi1": "/dev/serial/by-id/usb-Raspberry_Pi_Pico_E66118604B886021-if00",
+    "rpi2": "/dev/serial/by-id/usb-Raspberry_Pi_Pico_E66118604B497921-if00",
+}
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Interface serial para Raspberry Pi Pico"
+    )
+    parser.add_argument(
+        "--rpi",
+        choices=["rpi1", "rpi2"],
+        help="Seleciona automaticamente a porta USB do RPI 1 ou RPI 2",
+    )
+    parser.add_argument(
+        "--port",
+        help="Define explicitamente a porta serial (ex: /dev/ttyACM0)",
+    )
+    return parser.parse_args()
 
 def find_pico_port():
     """Procura automaticamente a porta do Raspberry Pi Pico."""
@@ -20,11 +43,48 @@ def find_pico_port():
             return port.device
     return None
 
+
+def resolve_port(args):
+    """Resolve a porta serial conforme prioridade: --port > --rpi > auto-deteção."""
+    if args.port:
+        return args.port
+
+    if args.rpi:
+        selected = RPI_PORTS[args.rpi]
+        return selected
+
+    return find_pico_port()
+
+
+def wait_for_port(port_path, timeout_s=12.0, poll_s=0.2):
+    """Espera a porta aparecer (útil após reset/upload do Pico)."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if os.path.exists(port_path):
+            return True
+        time.sleep(poll_s)
+    return False
+
 def main():
-    # Tenta encontrar a porta automaticamente
-    port = find_pico_port()
+    args = parse_args()
+
+    # Tenta resolver porta por argumentos e fallback automático
+    port = resolve_port(args)
+
+    # Quando uma porta específica é pedida, aguarda reaparecer após upload/reset.
+    if port and (args.rpi or args.port) and not os.path.exists(port):
+        print(f"A aguardar porta {port} ficar disponível...")
+        if not wait_for_port(port):
+            print(f"Porta não apareceu a tempo: {port}")
+            if args.rpi:
+                print("Não vou usar auto-deteção para evitar ligar ao RPI errado.")
+                print("Confirme se a board está ligada e se o ID no script está correto.")
+            port = None
     
     if not port:
+        if args.rpi:
+            print("Porta USB do RPI selecionado não encontrada.")
+            return
         print("Porta USB não encontrada automaticamente.")
         port = input("Insira a porta serial (ex: /dev/ttyACM0 ou /dev/ttyUSB0): ")
     else:

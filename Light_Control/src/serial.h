@@ -12,7 +12,7 @@ enum CommandOrigin {
 };
 
 struct Command {
-  String mainCmd;      // First token: 'u', 'r', 'o', 'a', 'f', 's', 'S', 'g'
+  String mainCmd;      // First token: 'u', 'r', 'o', 'a', 'f', 's', 'S', 'g', 'status'/'p'
   String subCmd;       // Second token (for get commands): 'u', 'r', 'y', 'v', 'o', 'a', 'f', 'd', 'p', 't', 'b'
   int luminaireId;     // Luminaire index <i>
   float value;         // Value for set commands

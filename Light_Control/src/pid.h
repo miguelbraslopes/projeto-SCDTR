@@ -63,6 +63,7 @@ public:
 
     void reset();
     float compute(float reference, float measurement);
+    float getExternalLuminance();
     void setOutputLimits(float minVal, float maxVal);
     void setsetpointWeighting(float swbeta, float g);
     bool setWeight(Weight weight, float value);

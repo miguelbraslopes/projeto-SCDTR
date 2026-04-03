@@ -69,9 +69,28 @@ static void sendGetResponse(const Command& cmd, float responseValue) {
     uint8_t msgType = 0;
     if (!mapCommandToCanMsgType(cmd, msgType)) {
       // Cannot map command type - should not happen
+      Serial.println("err");
       return;
     }
     encode_and_send(FSERIAL, _luminaireId, cmd.sourceLuminaireId, msgType, responseValue);
+  }
+}
+
+static void sendGetCharResponse(const Command& cmd, char responseValue) {
+  if (cmd.origin == ORIGIN_SERIAL) {
+    // Occupancy GET response format: o <i> <val>
+    Serial.print("o");
+    Serial.print(" ");
+    Serial.print(cmd.luminaireId);
+    Serial.print(" ");
+    Serial.println(responseValue);
+  } else if (cmd.origin == ORIGIN_CAN) {
+    uint8_t msgType = 0;
+    if (!mapCommandToCanMsgType(cmd, msgType)) {
+      Serial.println("err");
+      return;
+    }
+    encode_and_send_byte(FSERIAL, _luminaireId, cmd.sourceLuminaireId, msgType, static_cast<uint8_t>(responseValue));
   }
 }
 
@@ -90,6 +109,72 @@ static void sendCommandResponse(const Command& cmd, bool success) {
   }
 }
 
+static void printStatus() {
+  float duty;
+  float referenceLux;
+  char occupancyState;
+  bool antiWindupEnabled;
+  bool feedbackEnabled;
+  float pwmValues[3];
+
+  critical_section_enter_blocking(&gStateLock);
+  duty = gOutputs.duty;
+  referenceLux = gInputs.referenceLux;
+  occupancyState = gInputs.occupancyState;
+  antiWindupEnabled = gInputs.antiWindupEnabled;
+  feedbackEnabled = gInputs.feedbackEnabled;
+  for (int i = 0; i < 3; i++) {
+    pwmValues[i] = gInputs.pwm[i];
+  }
+  critical_section_exit(&gStateLock);
+
+  Serial.println("-------------------------------------------------------");
+  Serial.println("Status");
+  Serial.print("Duty: ");
+  Serial.println(duty);
+  Serial.print("Reference Lux: ");
+  Serial.println(referenceLux);
+  Serial.print("Occupancy State: ");
+  Serial.println(occupancyState);
+  Serial.print("Anti-windup Enabled: ");
+  Serial.println(antiWindupEnabled ? "true" : "false");
+  Serial.print("Feedback Enabled: ");
+  Serial.println(feedbackEnabled ? "true" : "false");
+
+  if (pwmValues[0] != 0.0f || pwmValues[1] != 0.0f || pwmValues[2] != 0.0f) {
+    Serial.print("PWM: [");
+    for (int i = 0; i < 3; i++) {
+      Serial.print(pwmValues[i]);
+      if (i < 2) {
+        Serial.print(", ");
+      }
+    }
+    Serial.println("]");
+  }
+}
+
+static void printExternalPwm() {
+  float pwmValues[3];
+
+  critical_section_enter_blocking(&gStateLock);
+  for (int i = 0; i < 3; i++) {
+    pwmValues[i] = gInputs.pwm[i];
+  }
+  critical_section_exit(&gStateLock);
+
+  Serial.println("-------------------------------------------------------");
+  Serial.println("PWM received from other luminaires");
+  for (int i = 0; i < 3; i++) {
+    if (i == _luminaireId) {
+      continue;
+    }
+    Serial.print("PWM[");
+    Serial.print(i);
+    Serial.print("]: ");
+    Serial.println(pwmValues[i]);
+  }
+}
+
 void handleSerial() {
   if (!Serial.available()) {
     return;
@@ -100,7 +185,13 @@ void handleSerial() {
 
   if (input.length() > 0) {
     Command cmd = parseCommand(input);
-    if (cmd.luminaireId > 3 ) {
+
+    // Local-only command: print PWM values received from other nodes.
+    if (cmd.mainCmd == "g" && cmd.subCmd == "p") {
+      cmd.luminaireId = _luminaireId;
+    }
+
+    if (cmd.luminaireId < 0 || cmd.luminaireId >= 3) {
       Serial.println("err");
     } else if (cmd.luminaireId == _luminaireId ) {
       executeCommand(cmd);
@@ -111,8 +202,15 @@ void handleSerial() {
         Serial.println("err");
         return;
       }
-      
-      encode_and_send(FSERIAL, _luminaireId, cmd.luminaireId, msgType, cmd.value);
+      if (cmd.mainCmd == "o") {
+        // Occupancy set carries a character state ('o', 'l', 'h').
+        encode_and_send_byte(FSERIAL, _luminaireId, cmd.luminaireId, msgType, static_cast<uint8_t>(cmd.charValue));
+      } else if (cmd.mainCmd == "a" || cmd.mainCmd == "f") {
+        // Boolean set commands are encoded as a single byte (0/1).
+        encode_and_send_byte(FSERIAL, _luminaireId, cmd.luminaireId, msgType, (cmd.value == 1.0f) ? 1 : 0);
+      } else {
+        encode_and_send(FSERIAL, _luminaireId, cmd.luminaireId, msgType, cmd.value);
+      }
       waiting_can = true; // Set flag to indicate we're waiting for a CAN response
     }
   }
@@ -200,8 +298,12 @@ Command parseCommand(String input) {
 
 void executeCommand(Command cmd) {
 
+  if (cmd.mainCmd == "status" || cmd.mainCmd == "p") {
+    printStatus();
+  }
+
   // GET commands (main command 'g')
-  if (cmd.mainCmd == "g") {
+  else if (cmd.mainCmd == "g") {
     
     if (cmd.subCmd == "u") {
       // Get duty cycle: g u <i>
@@ -254,8 +356,8 @@ void executeCommand(Command cmd) {
       critical_section_enter_blocking(&gStateLock);
       occupancyState = gInputs.occupancyState;
       critical_section_exit(&gStateLock);
-      
-      sendGetResponse(cmd, static_cast<float>(occupancyState));
+
+      sendGetCharResponse(cmd, occupancyState);
     }
 
     else if (cmd.subCmd == "a") {
@@ -281,16 +383,29 @@ void executeCommand(Command cmd) {
       float beta = controller.getWeight(PID::BETA);
       sendGetResponse(cmd, beta);
     }
+
+    else if (cmd.subCmd == "d") {
+      // Get external luminance: g d <i>
+      float externalLuminance = controller.getExternalLuminance();
+      sendGetResponse(cmd, externalLuminance);
+    }
+
+    else if (cmd.subCmd == "p") {
+      // Local command: print received PWM values from other luminaires.
+      printExternalPwm();
+      
+    }
   }
   // SET commands
   else if (cmd.mainCmd == "u") {
     // Set duty cycle: u <i> <val>
+    // Activates manual override mode (independent of feedback state).
     if (cmd.value >= 0.0f && cmd.value <= 1.0f) {
       critical_section_enter_blocking(&gStateLock);
       gPending.hasDuty = true;
       gPending.newDuty = cmd.value;
-      gPending.hasFeedbackEnabled = true;
-      gPending.newFeedbackEnabled = false;
+      gPending.hasManualOverride = true;
+      gPending.newManualOverride = true;
       critical_section_exit(&gStateLock);
       sendCommandResponse(cmd, true);
     } else {
@@ -299,7 +414,7 @@ void executeCommand(Command cmd) {
   }
   else if (cmd.mainCmd == "r") {
     // Set reference lux: r <i> <val>
-    if (cmd.luminaireId == 0) {
+    if (cmd.luminaireId < 3) {
       critical_section_enter_blocking(&gStateLock);
       gPending.hasReferenceLux = true;
       gPending.newReferenceLux = cmd.value;
@@ -311,7 +426,7 @@ void executeCommand(Command cmd) {
   }
   else if (cmd.mainCmd == "o") {
     // Set occupancy state: o <i> <val>
-    if (cmd.luminaireId == 0 && (cmd.charValue == 'o' || cmd.charValue == 'l' || cmd.charValue == 'h')) {
+    if (cmd.luminaireId < 3 && (cmd.charValue == 'o' || cmd.charValue == 'l' || cmd.charValue == 'h')) {
       critical_section_enter_blocking(&gStateLock);
       gPending.hasOccupancyState = true;
       gPending.newOccupancyState = cmd.charValue;
@@ -323,7 +438,7 @@ void executeCommand(Command cmd) {
   }
   else if (cmd.mainCmd == "a") {
     // Set anti-windup: a <i> <val>
-    if (cmd.luminaireId == 0 && (cmd.value == 0.0f || cmd.value == 1.0f)) {
+    if (cmd.luminaireId < 3 && (cmd.value == 0.0f || cmd.value == 1.0f)) {
       critical_section_enter_blocking(&gStateLock);
       gPending.hasAntiWindupEnabled = true;
       gPending.newAntiWindupEnabled = (cmd.value == 1.0f);
@@ -335,7 +450,8 @@ void executeCommand(Command cmd) {
   }
   else if (cmd.mainCmd == "f") {
     // Set feedback control: f <i> <val>
-    if (cmd.luminaireId == 0 && (cmd.value == 0.0f || cmd.value == 1.0f)) {
+    // Feedback is independent of manual override.
+    if (cmd.luminaireId < 3 && (cmd.value == 0.0f || cmd.value == 1.0f)) {
       critical_section_enter_blocking(&gStateLock);
       gPending.hasFeedbackEnabled = true;
       gPending.newFeedbackEnabled = (cmd.value == 1.0f);
@@ -345,7 +461,20 @@ void executeCommand(Command cmd) {
       sendCommandResponse(cmd, false);
     }
   }
-  else if (cmd.mainCmd == "w") {
+  else if (cmd.mainCmd == "m") {
+    // Set manual override: m <i> <val>
+    // m <i> 0 = disable override, m <i> 1 = enable override
+    if (cmd.luminaireId < 3 && (cmd.value == 0.0f || cmd.value == 1.0f)) {
+      critical_section_enter_blocking(&gStateLock);
+      gPending.hasManualOverride = true;
+      gPending.newManualOverride = (cmd.value == 1.0f);
+      critical_section_exit(&gStateLock);
+      sendCommandResponse(cmd, true);
+    } else {
+      sendCommandResponse(cmd, false);
+    }
+  }
+  /*else if (cmd.mainCmd == "w") {
     // Set setpoint weighting: w <i> <val>
     if (cmd.luminaireId == 0) {
       critical_section_enter_blocking(&gStateLock);
@@ -356,7 +485,7 @@ void executeCommand(Command cmd) {
     } else {
       sendCommandResponse(cmd, false);
     }
-  }
+  }*/
   else {
     sendCommandResponse(cmd, false);
   }

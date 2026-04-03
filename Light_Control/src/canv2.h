@@ -22,18 +22,18 @@
 #define CAN_FLOAT_PAYLOAD_LEN 4
 
 enum CANSerialMsgType : uint8_t {
-    CAN_MSG_SET_DUTY              = 0x00,
-    CAN_MSG_GET_DUTY              = 0x01,
-    CAN_MSG_SET_ILLUM_REF         = 0x02,
-    CAN_MSG_GET_ILLUM_REF         = 0x03,
-    CAN_MSG_GET_LUX               = 0x04,
-    CAN_MSG_GET_LDR_VOLTAGE       = 0x05,
-    CAN_MSG_SET_OCCUPANCY         = 0x06,
-    CAN_MSG_GET_OCCUPANCY         = 0x07,
-    CAN_MSG_SET_ANTI_WINDUP       = 0x08,
-    CAN_MSG_GET_ANTI_WINDUP       = 0x09,
-    CAN_MSG_SET_FEEDBACK          = 0x0A,
-    CAN_MSG_GET_FEEDBACK          = 0x0B,
+    CAN_MSG_SET_DUTY              = 0x00,//
+    CAN_MSG_GET_DUTY              = 0x01,//
+    CAN_MSG_SET_ILLUM_REF         = 0x02,//
+    CAN_MSG_GET_ILLUM_REF         = 0x03,//
+    CAN_MSG_GET_LUX               = 0x04,//
+    CAN_MSG_GET_LDR_VOLTAGE       = 0x05,//
+    CAN_MSG_SET_OCCUPANCY         = 0x06,//
+    CAN_MSG_GET_OCCUPANCY         = 0x07,//
+    CAN_MSG_SET_ANTI_WINDUP       = 0x08,//
+    CAN_MSG_GET_ANTI_WINDUP       = 0x09,//
+    CAN_MSG_SET_FEEDBACK          = 0x0A,//
+    CAN_MSG_GET_FEEDBACK          = 0x0B,//
     CAN_MSG_GET_EXT_ILLUM         = 0x0C,
     CAN_MSG_GET_INST_POWER        = 0x0D,
     CAN_MSG_GET_ELAPSED_TIME      = 0x0E,
@@ -61,6 +61,7 @@ enum CANSerialMsgType : uint8_t {
 extern MCP2515 can0;
 
 void encode_and_send(uint8_t type, uint8_t srcID, uint8_t dstID, uint8_t msgType, float value);
+void encode_and_send_byte(uint8_t type, uint8_t srcID, uint8_t dstID, uint8_t msgType, uint8_t value);
 void encode_and_send_status(uint8_t srcID, uint8_t dstID, bool success);
 canid_t encodeID(uint8_t type, uint8_t srcID, uint8_t dstID, uint8_t msgType);
 void CAN_packFloat(float value, uint8_t outPayload[CAN_FLOAT_PAYLOAD_LEN]);
