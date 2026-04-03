@@ -392,8 +392,9 @@ void executeCommand(Command cmd) {
 
     else if (cmd.subCmd == "p") {
       // Local command: print received PWM values from other luminaires.
-      printExternalPwm();
-      
+      //printExternalPwm();
+      float pwr=getInstantPower();
+      sendGetResponse(cmd, ); // Just send an ACK for this local command since it doesn't have a single numeric response
     }
   }
   // SET commands

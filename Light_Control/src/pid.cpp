@@ -91,6 +91,11 @@ float compute_avg_visibility_err(){
 
 }
 
+float getInstantPower() {
+  // Placeholder for actual power computation logic
+  return instant_Pwr;
+}
+
 // =====================
 // PID CLASS IMPLEMENTATIONS
 // =====================
